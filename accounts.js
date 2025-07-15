@@ -15,7 +15,7 @@ const accounts = [
     title: "PUBG Mobile Royal Pass",
     price: 9000,
     images: [
-      "https://ibb.co/SXm4KMWK",
+      "https://i.ibb.co/Tq2rL7cJ/IMG-20250715-222723-032.jpg",
       "https://ibb.co/S7yJrMNH"
     ],
     description: "• M24 Skin\n• 85 Level\n• UZ Server\n• Facebook ulangan",
