@@ -26,9 +26,9 @@ const accounts = [
   title: "Pubg Mobile account",
   price: 350000,
   images: [
-    "https://ibb.co/LX9QzJw4",
-    "https://ibb.co/WvYXs6dg",
-    "https://ibb.co/NdY6BJsh"
+    "https://i.ibb.co/rR5bGcPn/IMG-20250715-225414-501.jpg",
+    "https://i.ibb.co/nM5yRbVz/IMG-20250715-225423-095.jpg",
+    "https://i.ibb.co/G4PvS80w/IMG-20250715-225435-468.jpg"
   ],
   description: "•Lvl 74,  Mifik 60+, Kolleksiya 55 lvl\n •15 ta kuchaytiradigan qurol, Leopart Full",
   telegram: "https://t.me/FAYZULLO_tdm",
