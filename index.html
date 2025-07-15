@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Akkaunt Bozor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-900">
+
+  <div class="container mx-auto p-4">
+    <h1 class="text-3xl font-bold text-center mb-4">🎮 Akkaunt Bozor</h1>
+
+    <!-- Filter -->
+    <div class="flex justify-end mb-4">
+      <label class="mr-2 font-medium">Tartiblash:</label>
+      <select id="sort" class="border px-2 py-1 rounded">
+        <option value="asc">Arzon → Qimmat</option>
+        <option value="desc">Qimmat → Arzon</option>
+      </select>
+    </div>
+
+    <!-- Reklama bo'limi -->
+    <div id="promo" class="mb-6">
+      <h2 class="text-xl font-semibold mb-2">⭐ Reklamadagi akkauntlar</h2>
+      <div id="promoContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </div>
+
+    <!-- Barcha akkauntlar -->
+    <div id="accountsContainer" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
