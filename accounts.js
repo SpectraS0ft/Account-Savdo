@@ -21,7 +21,7 @@ const accounts = [
     description: "• M24 Skin\n• 85 Level\n• UZ Server\n• Facebook ulangan",
     telegram: "https://t.me/seller_pubg",
     promo: false
-  }
+  },
   {
   title: "Pubg Mobile account",
   price: 350000,
