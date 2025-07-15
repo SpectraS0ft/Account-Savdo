@@ -22,4 +22,16 @@ const accounts = [
     telegram: "https://t.me/seller_pubg",
     promo: false
   }
+  {
+  title: "Pubg Mobile account",
+  price: 350000,
+  images: [
+    "https://ibb.co/NdY6BJsh",
+    "https://ibb.co/WvYXs6dg",
+    "https://ibb.co/LX9QzJw4"
+  ],
+  description: ".Lvl 74, Akula set, tarjeniya maska, Lednik kaska, Tdm set, Mifik soʻmka, Mifik 60+, Kolleksiya 55 lvl, 15 ta kuchaytiradigan qurol, Leopart Full",
+  telegram: "https://t.me/FAYZULLO_tdm",
+  promo: true
+}
 ];
