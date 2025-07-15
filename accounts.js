@@ -9,7 +9,7 @@ const accounts = [
     ],
     description: "• Viper + Jett skinlari\n• 5 ta Premium bundle\n• Email bilan birga beriladi\n• Rank: Diamond 2",
     telegram: "https://t.me/seller_valorant",
-    promo: true
+    promo: false
   },
   {
     title: "PUBG Mobile Royal Pass",
@@ -32,6 +32,6 @@ const accounts = [
   ],
   description: "•Lvl 74,  Mifik 60+, Kolleksiya 55 lvl\n •15 ta kuchaytiradigan qurol, Leopart Full",
   telegram: "https://t.me/FAYZULLO_tdm",
-  promo: false
+  promo: true
 },
 ];
