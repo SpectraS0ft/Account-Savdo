@@ -3,37 +3,61 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>AirDraw — Full (Gestures + GTA Wheel)</title>
+<title>AirDraw — Centered Menu, Visible Cursor, Smooth Wheel</title>
 <style>
   :root{--ui-bg: rgba(0,0,0,0.45);--ui-fg:#fff}
-  html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial;background:#000}
-  #app{position:relative;width:100vw;height:100vh;overflow:hidden}
-  video#cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial;background:#000;overflow:hidden}
+  #app{position:relative;width:100vw;height:100vh}
+  video#cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);z-index:0}
   canvas{position:absolute;top:0;left:0;touch-action:none}
-  /* UI */
-  #ui{position:absolute;left:12px;top:12px;background:var(--ui-bg);color:var(--ui-fg);padding:8px;border-radius:10px;backdrop-filter: blur(6px);z-index:50;display:flex;gap:8px;align-items:center}
-  button,input[type=color],select{background:transparent;border:1px solid rgba(255,255,255,0.15);color:var(--ui-fg);padding:6px 8px;border-radius:8px}
-  #status{position:absolute;left:12px;bottom:12px;color:var(--ui-fg);background:var(--ui-bg);padding:6px 10px;border-radius:8px;z-index:50}
-  #cursor{position:absolute;width:20px;height:20px;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:51;display:block;mix-blend-mode:screen}
-  #mode{position:absolute;right:12px;top:12px;background:var(--ui-bg);color:var(--ui-fg);padding:8px;border-radius:8px;z-index:50}
+  #drawCanvas{z-index:1} /* persistent drawing */
+  #overlay{z-index:2} /* overlay for wheel, guides */
+
+  /* Menu button bottom-left */
+  #menuBtn{
+    position:fixed; left:14px; bottom:14px; z-index:60;
+    background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);
+    color:var(--ui-fg); padding:10px 14px; border-radius:10px; backdrop-filter:blur(6px);
+    font-weight:600; cursor:pointer;
+  }
+
+  /* visible cursor */
+  #cursor{
+    position:fixed; width:36px; height:36px; border-radius:50%; pointer-events:none; z-index:70;
+    transform:translate(-50%,-50%); mix-blend-mode:screen; display:block;
+    box-shadow:0 8px 20px rgba(0,0,0,0.45), inset 0 -4px 10px rgba(0,0,0,0.25);
+    border:3px solid rgba(255,255,255,0.08);
+    transition: background 140ms linear, transform 120ms ease;
+    background: rgba(255,200,40,0.95); /* default yellow */
+  }
+
+  /* small HUD and controls */
+  #controls{position:fixed; left:12px; top:12px; z-index:60; background:var(--ui-bg); padding:8px; border-radius:8px; display:flex; gap:8px; align-items:center}
+  button,select,input[type=color]{background:transparent;border:1px solid rgba(255,255,255,0.12);color:var(--ui-fg);padding:6px 8px;border-radius:8px}
+  #hud{position:fixed; right:12px; top:12px; z-index:60; background:var(--ui-bg); color:var(--ui-fg); padding:8px 10px; border-radius:9px}
+  #status{position:fixed; left:12px; bottom:12px; z-index:60; background:var(--ui-bg); color:var(--ui-fg); padding:6px 10px; border-radius:9px}
 </style>
 </head>
 <body>
 <div id="app">
   <video id="cam" autoplay playsinline muted></video>
-  <canvas id="videoCanvas"></canvas>
+
   <canvas id="drawCanvas"></canvas>
+  <canvas id="overlay"></canvas>
+
   <div id="cursor" aria-hidden="true"></div>
 
-  <div id="ui">
+  <div id="controls">
     <button id="saveBtn">Save</button>
     <button id="clearBtn">Clear</button>
-    <label>Color <input id="colorPicker" type="color" value="#ff3b30" /></label>
-    <label>Size <select id="sizeSelect"><option value="3">Small</option><option value="8" selected>Medium</option><option value="18">Large</option></select></label>
-    <button id="mirrorBtn">Mirror: ON</button>
+    <label>Color <input id="colorPicker" type="color" value="#ff3b30"></label>
+    <label>Size
+      <select id="sizeSelect"><option value="3">S</option><option value="8" selected>M</option><option value="18">L</option></select>
+    </label>
   </div>
 
-  <div id="mode">Mode: <span id="modeText">Brush</span></div>
+  <button id="menuBtn">Menyu</button>
+  <div id="hud">Mode: <span id="modeText">Brush</span></div>
   <div id="status">Initializing camera...</div>
 </div>
 
@@ -42,263 +66,158 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
-/* -----------------------
-   Config & State
-   -----------------------*/
+/* ---------- Setup ---------- */
 const video = document.getElementById('cam');
-const vCanvas = document.getElementById('videoCanvas');
-const vctx = vCanvas.getContext('2d');
 const drawCanvas = document.getElementById('drawCanvas');
+const overlay = document.getElementById('overlay');
 const dctx = drawCanvas.getContext('2d');
-
+const octx = overlay.getContext('2d');
 const cursor = document.getElementById('cursor');
+const menuBtn = document.getElementById('menuBtn');
 const statusEl = document.getElementById('status');
-const modeText = document.getElementById('modeText');
-
+const hudMode = document.getElementById('modeText');
 const saveBtn = document.getElementById('saveBtn');
 const clearBtn = document.getElementById('clearBtn');
 const colorPicker = document.getElementById('colorPicker');
 const sizeSelect = document.getElementById('sizeSelect');
-const mirrorBtn = document.getElementById('mirrorBtn');
 
 let DPR = window.devicePixelRatio || 1;
 let W = window.innerWidth, H = window.innerHeight;
-function resizeCanvases(){
+function resize(){
   W = window.innerWidth; H = window.innerHeight;
-  vCanvas.width = W * DPR; vCanvas.height = H * DPR; vCanvas.style.width = W+'px'; vCanvas.style.height = H+'px';
-  vctx.setTransform(DPR,0,0,DPR,0,0);
-  drawCanvas.width = W * DPR; drawCanvas.height = H * DPR; drawCanvas.style.width = W+'px'; drawCanvas.style.height = H+'px';
-  dctx.setTransform(DPR,0,0,DPR,0,0);
+  drawCanvas.width = W * DPR; drawCanvas.height = H * DPR; drawCanvas.style.width = W+'px'; drawCanvas.style.height = H+'px'; dctx.setTransform(DPR,0,0,DPR,0,0);
+  overlay.width = W * DPR; overlay.height = H * DPR; overlay.style.width = W+'px'; overlay.style.height = H+'px'; octx.setTransform(DPR,0,0,DPR,0,0);
 }
-window.addEventListener('resize', resizeCanvases);
-resizeCanvases();
+window.addEventListener('resize', resize);
+resize();
 
-let mirror = true; // front camera mirrored visually
-mirrorBtn.onclick = () => {
-  mirror = !mirror;
-  video.style.transform = mirror ? 'scaleX(-1)' : 'scaleX(1)';
-  mirrorBtn.textContent = 'Mirror: ' + (mirror ? 'ON' : 'OFF');
-};
-
-/* Drawing state */
-let isDrawing = false; // whether currently drawing (pen pose)
-let lastPos = null;
-let color = colorPicker.value;
+/* ---------- State ---------- */
+let mirror = true;
+let currentMode = 'Brush';
 let brushSize = Number(sizeSelect.value);
-let currentMode = 'Brush'; // Brush, Eraser, Colors, Size, Clear, Shapes
-let shapesMode = 'circle'; // circle or square
+let color = colorPicker.value;
+let shapesMode = 'circle';
+let isDrawing = false;
+let lastPos = null;
 
-colorPicker.oninput = (e) => { color = e.target.value; };
-sizeSelect.onchange = (e) => { brushSize = Number(e.target.value); };
-
-/* palette for 5-finger cycling */
 const palette = ['#ff3b30','#ff9500','#ffd60a','#34c759','#5ac8fa','#5856d6','#ff2d55'];
-let paletteIndex = 0;
-let fiveWasOn = false;
+let paletteIndex = 0, fiveWasOn = false;
 
-/* GTA wheel menu */
 const SECTORS = ['Brush','Eraser','Colors','Size','Clear','Shapes'];
 let menuVisible = false;
-let menuCenter = {x:0,y:0};
+let menuCenter = {x: W/2, y: H/2};
+let menuRadius = 0; // animated
+let menuTargetRadius = 0;
 let hoveredSector = null;
 let hoverStart = 0;
+const HOVER_MS = 5000; // 5 seconds
 
-/* timers/thresholds */
-const penThresholdPx = 40; // thumb-index distance px threshold (will scale with H)
-const penThresholdNorm = 0.06; // fallback normalized threshold
-const hoverMs = 5000; // how long to hover to select (5 seconds as requested)
+const penThresholdPx = Math.max(36, Math.round(Math.min(W,H) * 0.06));
+const penThresholdNorm = 0.06;
 
-/* UI actions */
-clearBtn.onclick = () => { dctx.clearRect(0,0,W,H); };
+/* ---------- UI hooks ---------- */
+colorPicker.addEventListener('input', e => color = e.target.value);
+sizeSelect.addEventListener('change', e => brushSize = Number(e.target.value));
+
 saveBtn.onclick = () => {
-  const tmp = document.createElement('canvas');
-  tmp.width = W * DPR; tmp.height = H * DPR;
-  const t = tmp.getContext('2d');
-  t.save();
-  if (mirror) { t.translate(tmp.width/DPR,0); t.scale(-1,1); }
-  t.drawImage(video, 0, 0, tmp.width/DPR, tmp.height/DPR);
-  t.restore();
-  t.drawImage(drawCanvas, 0, 0);
-  const url = tmp.toDataURL('image/png');
-  const a = document.createElement('a'); a.href = url; a.download = 'airdraw.png'; a.click();
+  const tmp = document.createElement('canvas'); tmp.width = W * DPR; tmp.height = H * DPR; const t = tmp.getContext('2d');
+  t.save(); if(mirror){ t.translate(tmp.width/DPR,0); t.scale(-1,1); } t.drawImage(video,0,0,tmp.width/DPR,tmp.height/DPR); t.restore(); t.drawImage(drawCanvas,0,0);
+  const url = tmp.toDataURL('image/png'); const a = document.createElement('a'); a.href = url; a.download='airdraw.png'; a.click();
+};
+clearBtn.onclick = () => { dctx.clearRect(0,0,W,H); };
+
+menuBtn.onclick = () => {
+  // open/close menu at center of screen per user's request
+  if(menuVisible) closeMenu(); else openMenuCentered();
 };
 
-function setMode(m){
-  currentMode = m; modeText.textContent = m;
-}
+function openMenuCentered(){ menuVisible = true; menuCenter = {x: W/2, y: H/2}; menuTargetRadius = Math.min(160, Math.max(100, Math.min(W,H) * 0.17)); menuRadius = 0; hoveredSector = null; hoverStart = 0; statusEl.textContent='Menyu ochildi'; isDrawing = false; lastPos = null; }
+function closeMenu(){ menuVisible = false; menuTargetRadius = 0; hoveredSector = null; hoverStart = 0; statusEl.textContent = currentMode + ' mode'; }
 
-/* -----------------------
-   Helper functions
-   -----------------------*/
-function normToScreen(pt){
-  let x = pt.x * W;
-  let y = pt.y * H;
-  if (mirror) x = W - x;
-  return {x,y};
-}
-function distancePx(a,b){
-  return Math.hypot((a.x-b.x), (a.y-b.y));
-}
+function setMode(m){ currentMode = m; hudMode.textContent = m; statusEl.textContent = m + ' mode'; }
 
-/* -----------------------
-   MediaPipe Hands setup
-   -----------------------*/
-const hands = new Hands({
-  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-});
-hands.setOptions({
-  maxNumHands: 1,
-  modelComplexity: 1,
-  minDetectionConfidence: 0.65,
-  minTrackingConfidence: 0.65
-});
+/* ---------- MediaPipe Hands ---------- */
+const hands = new Hands({ locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+hands.setOptions({ maxNumHands:1, modelComplexity:1, minDetectionConfidence:0.65, minTrackingConfidence:0.65 });
 hands.onResults(onHands);
 
-const camera = new Camera(video, {
-  onFrame: async () => { await hands.send({image: video}); },
-  width: 1280, height: 720
-});
-async function startCamera(){
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
-    video.srcObject = stream;
-    await video.play();
-    video.style.display = 'block';
-    statusEl.textContent = 'Camera running — show your hand';
-    camera.start();
-  } catch(e){
-    console.error(e); statusEl.textContent = 'Camera error: ' + (e.message || e.name);
-  }
-}
-startCamera();
+const camera = new Camera(video, { onFrame: async () => { await hands.send({image: video}); }, width:1280, height:720 });
+async function startCam(){ try{ const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user' }, audio:false }); video.srcObject = stream; await video.play(); statusEl.textContent = 'Kamera yuklandi — qo\'lingizni tutilang'; camera.start(); }catch(e){ console.error(e); statusEl.textContent = 'Camera error: ' + (e.message || e.name); } }
+startCam();
 
-/* -----------------------
-   Draw UI wheel
-   -----------------------*/
-function drawWheel(center){
-  const radius = Math.min(140, Math.max(100, Math.min(W,H)*0.17));
-  const sectorAngle = (2*Math.PI)/SECTORS.length;
-  vctx.save();
-  vctx.globalAlpha = 0.95;
-  for(let i=0;i<SECTORS.length;i++){
-    const start = i*sectorAngle - Math.PI/2;
-    const end = start + sectorAngle;
-    vctx.beginPath();
-    vctx.moveTo(center.x, center.y);
-    vctx.arc(center.x, center.y, radius, start, end);
-    vctx.closePath();
-    vctx.fillStyle = (i===hoveredSector) ? 'rgba(255,230,120,0.98)' : 'rgba(0,0,0,0.6)';
-    vctx.fill();
-    const ang = start + sectorAngle/2;
-    const lx = center.x + Math.cos(ang) * (radius*0.62);
-    const ly = center.y + Math.sin(ang) * (radius*0.62);
-    vctx.fillStyle = i===hoveredSector ? '#000' : '#fff';
-    vctx.font = 'bold 16px sans-serif';
-    vctx.textAlign = 'center';
-    vctx.textBaseline = 'middle';
-    vctx.fillText(SECTORS[i], lx, ly);
-  }
-  vctx.restore();
-}
+/* ---------- Drawing & Gesture Logic ---------- */
+function normToScreen(pt){ let x = pt.x * W, y = pt.y * H; if(mirror) x = W - x; return {x,y}; }
 
-/* -----------------------
-   Gesture & main logic
-   -----------------------*/
-let lastFrameTime = 0;
-function onHands(results){
-  vctx.clearRect(0,0,vCanvas.width/DPR, vCanvas.height/DPR);
+function drawWheel(center, radius, hoverIndex){ const sec = SECTORS.length; const sectorAngle = (2*Math.PI)/sec; octx.save(); octx.globalAlpha = 0.95; for(let i=0;i<sec;i++){ const start = i*sectorAngle - Math.PI/2; const end = start + sectorAngle; octx.beginPath(); octx.moveTo(center.x, center.y); octx.arc(center.x, center.y, radius, start, end); octx.closePath(); octx.fillStyle = (i===hoverIndex) ? 'rgba(255,230,120,0.98)' : 'rgba(0,0,0,0.6)'; octx.fill(); const ang = start + sectorAngle/2; const lx = center.x + Math.cos(ang) * (radius*0.6); const ly = center.y + Math.sin(ang) * (radius*0.6); octx.fillStyle = i===hoverIndex ? '#000' : '#fff'; octx.font='bold 16px sans-serif'; octx.textAlign='center'; octx.textBaseline='middle'; octx.fillText(SECTORS[i], lx, ly); } octx.restore(); }
 
-  if(!results.multiHandLandmarks || results.multiHandLandmarks.length===0){
-    cursor.style.display='none';
-    statusEl.textContent = 'No hand detected';
-    menuVisible = false; hoveredSector = null; hoverStart = 0; fiveWasOn = false; isDrawing = false; lastPos = null;
-    return;
-  }
+function handleSectorSelect(i){ const s = SECTORS[i]; switch(s){ case 'Brush': setMode('Brush'); break; case 'Eraser': setMode('Eraser'); break; case 'Colors': paletteIndex = (paletteIndex +1) % palette.length; colorPicker.value = palette[paletteIndex]; color = palette[paletteIndex]; statusEl.textContent = 'Rang: ' + color; setTimeout(()=> statusEl.textContent = currentMode + ' mode',800); break; case 'Size': { const opts=[3,8,18]; const cur=opts.indexOf(brushSize); const nxt=opts[(cur+1)%opts.length]; brushSize=nxt; sizeSelect.value=String(nxt); statusEl.textContent='Size: '+nxt; setTimeout(()=> statusEl.textContent=currentMode + ' mode',700); break;} case 'Clear': dctx.clearRect(0,0,W,H); statusEl.textContent='Cleared'; setTimeout(()=> statusEl.textContent=currentMode + ' mode',700); break; case 'Shapes': setMode('Shapes'); shapesMode = (shapesMode==='circle') ? 'square' : 'circle'; statusEl.textContent='Shapes: '+shapesMode; setTimeout(()=> statusEl.textContent=currentMode + ' mode',700); break; } if(navigator.vibrate) navigator.vibrate(40); }
+
+// main handler
+function onHands(results){ // clear overlay each frame
+  octx.clearRect(0,0,W,H);
+  if(!results.multiHandLandmarks || results.multiHandLandmarks.length===0){ cursor.style.display='none'; statusEl.textContent='Qo\'l topilmadi'; hoverStart=0; hoveredSector=null; fiveWasOn=false; isDrawing=false; lastPos=null; return; }
 
   const lm = results.multiHandLandmarks[0];
-  const indexTip = lm[8];
-  const thumbTip = lm[4];
-  const middleTip = lm[12];
-  const ringTip = lm[16];
-  const pinkyTip = lm[20];
+  const idx = normToScreen(lm[8]);
+  cursor.style.left = idx.x + 'px'; cursor.style.top = idx.y + 'px'; cursor.style.display='block';
 
-  const idx = normToScreen(indexTip);
-  cursor.style.left = idx.x + 'px'; cursor.style.top = idx.y + 'px'; cursor.style.display = 'block';
+  // cursor color states
+  let cursorColor = 'rgba(255,200,40,0.95)';
+  if(menuVisible) cursorColor = 'rgba(80,200,220,0.95)';
+  if(hoveredSector !== null && menuVisible) cursorColor = 'rgba(80,230,120,0.98)';
+  if(isDrawing) cursorColor = 'rgba(255,100,100,0.95)';
+  cursor.style.background = cursorColor;
+  cursor.style.transform = 'translate(-50%,-50%) scale(' + (menuVisible ? 1.05 : 1) + ')';
 
-  vctx.beginPath(); vctx.arc(idx.x, idx.y, 6, 0, 2*Math.PI); vctx.fillStyle='rgba(255,255,255,0.9)'; vctx.fill();
-  vctx.beginPath(); vctx.arc(idx.x, idx.y, 12, 0, 2*Math.PI); vctx.strokeStyle='rgba(255,255,255,0.12)'; vctx.lineWidth=2; vctx.stroke();
+  // small overlay ring under cursor
+  octx.beginPath(); octx.arc(idx.x, idx.y, 10, 0, 2*Math.PI); octx.fillStyle='rgba(255,255,255,0.05)'; octx.fill();
 
-  const dx = indexTip.x - thumbTip.x; const dy = indexTip.y - thumbTip.y; const distNorm = Math.hypot(dx,dy);
-  const approxPxDist = distNorm * Math.min(W,H);
+  // gestures
+  const thumb = lm[4]; const middle = lm[12];
+  const dx = lm[8].x - thumb.x; const dy = lm[8].y - thumb.y; const distNorm = Math.hypot(dx,dy); const approxPxDist = distNorm * Math.min(W,H);
   const penDown = (approxPxDist < penThresholdPx) || (distNorm < penThresholdNorm);
 
-  const idxMidDist = Math.hypot(indexTip.x-middleTip.x, indexTip.y-middleTip.y);
-  const isV = idxMidDist > 0.07;
-
-  let extendedCount = 0;
-  const fingerPairs = [{tip:8,pip:6},{tip:12,pip:10},{tip:16,pip:14},{tip:20,pip:18}];
-  for(const f of fingerPairs){ if(lm[f.tip].y < lm[f.pip].y) extendedCount++; }
-  const thumbIp = lm[3];
-  const thumbExt = mirror ? (lm[4].x > thumbIp.x + 0.03) : (lm[4].x < thumbIp.x - 0.03);
+  // five fingers detection -> palette cycle
+  let extendedCount=0; const fingerPairs=[{tip:8,pip:6},{tip:12,pip:10},{tip:16,pip:14},{tip:20,pip:18}];
+  for(const f of fingerPairs) if(lm[f.tip].y < lm[f.pip].y) extendedCount++;
+  const thumbIp = lm[3]; const thumbExt = mirror ? (lm[4].x > thumbIp.x + 0.03) : (lm[4].x < thumbIp.x - 0.03);
   if(thumbExt) extendedCount++;
-  if(extendedCount === 5 && !fiveWasOn){
-    paletteIndex = (paletteIndex + 1) % palette.length; colorPicker.value = palette[paletteIndex]; color = palette[paletteIndex]; fiveWasOn = true;
-    if(navigator.vibrate) navigator.vibrate(50); statusEl.textContent = '5 fingers — color changed'; setTimeout(()=> statusEl.textContent = currentMode + ' mode', 600);
-  }
-  if(extendedCount !== 5) fiveWasOn = false;
+  if(extendedCount === 5 && !fiveWasOn){ paletteIndex = (paletteIndex +1) % palette.length; colorPicker.value = palette[paletteIndex]; color = palette[paletteIndex]; fiveWasOn=true; if(navigator.vibrate) navigator.vibrate(40); statusEl.textContent='Rang o\'zgardi: '+color; setTimeout(()=> statusEl.textContent=currentMode+' mode',800); }
+  if(extendedCount !== 5) fiveWasOn=false;
 
-  if(isV && !menuVisible){ menuVisible = true; menuCenter = {x: idx.x, y: idx.y}; hoveredSector = null; hoverStart = 0; statusEl.textContent = 'Menu opened'; }
-
-  if(menuVisible){
-    const ang = Math.atan2(idx.y - menuCenter.y, idx.x - menuCenter.x); let normAng = ang + Math.PI/2; normAng = (normAng + 2*Math.PI) % (2*Math.PI);
+  // Menu behavior — menu opens only via button and appears centered
+  if(menuVisible){ // animate menuRadius toward target
+    menuRadius += (menuTargetRadius - menuRadius) * 0.18; drawWheel(menuCenter, menuRadius, hoveredSector);
+    // determine hovered sector by angle
+    const ang = Math.atan2(idx.y - menuCenter.y, idx.x - menuCenter.x);
+    let normAng = (ang + Math.PI/2 + 2*Math.PI) % (2*Math.PI);
     const sectorAngle = (2*Math.PI)/SECTORS.length; const sIndex = Math.floor(normAng / sectorAngle);
     if(sIndex !== hoveredSector){ hoveredSector = sIndex; hoverStart = performance.now(); }
-    else { if(hoverStart && performance.now() - hoverStart > hoverMs){ handleSectorSelect(hoveredSector); menuVisible = false; hoveredSector = null; hoverStart = 0; } }
-    drawWheel(menuCenter);
+    else if(hoverStart && (performance.now() - hoverStart) > HOVER_MS){ handleSectorSelect(hoveredSector); closeMenu(); }
+
+    // draw hover progress arc near center for feedback
+    if(hoverStart){ const elapsed = performance.now() - hoverStart; const prog = Math.min(1, elapsed / HOVER_MS); const startA = (hoveredSector*(sectorAngle)) - Math.PI/2; const drawA = startA + sectorAngle * prog; octx.save(); octx.beginPath(); octx.moveTo(menuCenter.x, menuCenter.y); octx.arc(menuCenter.x, menuCenter.y, menuRadius*0.88, startA, drawA); octx.lineTo(menuCenter.x, menuCenter.y); octx.closePath(); octx.fillStyle = 'rgba(80,230,120,0.12)'; octx.fill(); octx.restore(); }
+
+    // while menu open, don't draw strokes
+    isDrawing=false; lastPos=null; return;
+  } else { // animate radius back to 0 when closing
+    if(menuRadius > 0.5) menuRadius += (0 - menuRadius) * 0.2;
   }
 
-  if(!menuVisible){
-    if(penDown){
-      if(!isDrawing){ isDrawing = true; lastPos = idx; }
-      else {
-        if(currentMode === 'Brush'){
-          dctx.globalCompositeOperation = 'source-over'; dctx.strokeStyle = color; dctx.lineJoin = 'round'; dctx.lineCap = 'round'; dctx.lineWidth = brushSize; dctx.beginPath(); dctx.moveTo(lastPos.x, lastPos.y); dctx.lineTo(idx.x, idx.y); dctx.stroke();
-        } else if(currentMode === 'Eraser'){
-          dctx.globalCompositeOperation = 'destination-out'; dctx.lineWidth = brushSize * 1.5; dctx.beginPath(); dctx.moveTo(lastPos.x, lastPos.y); dctx.lineTo(idx.x, idx.y); dctx.stroke(); dctx.globalCompositeOperation = 'source-over';
-        }
-        lastPos = idx;
-      }
-    } else {
-      if(isDrawing){ if(currentMode === 'Shapes' && lastPos){ dctx.save(); dctx.fillStyle = color; const s = brushSize * 8; if(shapesMode === 'circle'){ dctx.beginPath(); dctx.arc(lastPos.x,lastPos.y,s/2,0,2*Math.PI); dctx.fill(); } else { dctx.fillRect(lastPos.x - s/2, lastPos.y - s/2, s, s); } dctx.restore(); } }
-      isDrawing = false; lastPos = null;
-    }
-  }
-
-  if(!menuVisible) statusEl.textContent = currentMode + ' mode';
+  // drawing when menu closed
+  if(penDown){ if(!isDrawing){ isDrawing=true; lastPos=idx; } else { if(currentMode === 'Brush'){ dctx.globalCompositeOperation='source-over'; dctx.strokeStyle=color; dctx.lineJoin='round'; dctx.lineCap='round'; dctx.lineWidth=brushSize; dctx.beginPath(); dctx.moveTo(lastPos.x,lastPos.y); dctx.lineTo(idx.x,idx.y); dctx.stroke(); } else if(currentMode==='Eraser'){ dctx.globalCompositeOperation='destination-out'; dctx.lineWidth = brushSize * 1.6; dctx.beginPath(); dctx.moveTo(lastPos.x,lastPos.y); dctx.lineTo(idx.x,idx.y); dctx.stroke(); dctx.globalCompositeOperation='source-over'; } lastPos = idx; } } else { if(isDrawing){ if(currentMode==='Shapes' && lastPos){ dctx.save(); dctx.fillStyle=color; const s = brushSize * 10; if(shapesMode==='circle'){ dctx.beginPath(); dctx.arc(lastPos.x,lastPos.y,s/2,0,2*Math.PI); dctx.fill(); } else { dctx.fillRect(lastPos.x - s/2, lastPos.y - s/2, s, s); } dctx.restore(); } } isDrawing=false; lastPos=null; }
+  statusEl.textContent = currentMode + ' mode';
 }
 
-/* -----------------------
-   Sector handling
-   -----------------------*/
-function handleSectorSelect(i){
-  const s = SECTORS[i];
-  switch(s){
-    case 'Brush': setMode('Brush'); dctx.globalCompositeOperation = 'source-over'; break;
-    case 'Eraser': setMode('Eraser'); dctx.globalCompositeOperation = 'source-over'; break;
-    case 'Colors': setMode('Colors'); showQuickPalette(); break;
-    case 'Size': setMode('Size'); cycleSize(); break;
-    case 'Clear': dctx.clearRect(0,0,W,H); setMode('Brush'); break;
-    case 'Shapes': setMode('Shapes'); shapesMode = (shapesMode === 'circle') ? 'square' : 'circle'; statusEl.textContent = 'Shapes: ' + shapesMode; setTimeout(()=> statusEl.textContent = currentMode + ' mode', 800); break;
-  }
-}
+// RAF loop placeholder to keep menu animation smooth even if no hands frame
+function raf(){ if(menuVisible){ /* menuRadius easing happens in onHands when frames arrive */ } requestAnimationFrame(raf); }
+requestAnimationFrame(raf);
 
-function showQuickPalette(){
-  const sx = W - 140, sy = 60, w = 120, h = 40; vctx.save(); vctx.fillStyle = 'rgba(0,0,0,0.6)'; vctx.fillRect(sx, sy, w, h); const sw = w / palette.length; for(let i=0;i<palette.length;i++){ vctx.fillStyle = palette[i]; vctx.fillRect(sx + i*sw, sy, sw, h); } vctx.restore(); paletteIndex = (paletteIndex + 1) % palette.length; colorPicker.value = palette[paletteIndex]; color = palette[paletteIndex]; if(navigator.vibrate) navigator.vibrate(40); setTimeout(()=>{}, 600);
-}
+function handleSectorSelect(i){ const s = SECTORS[i]; switch(s){ case 'Brush': setMode('Brush'); break; case 'Eraser': setMode('Eraser'); break; case 'Colors': paletteIndex=(paletteIndex+1)%palette.length; colorPicker.value=palette[paletteIndex]; color=palette[paletteIndex]; statusEl.textContent='Rang: '+color; setTimeout(()=>statusEl.textContent=currentMode+' mode',800); break; case 'Size': { const opts=[3,8,18]; const cur=opts.indexOf(brushSize); const nxt=opts[(cur+1)%opts.length]; brushSize=nxt; sizeSelect.value=String(nxt); statusEl.textContent='Size: '+nxt; setTimeout(()=>statusEl.textContent=currentMode+' mode',700); break; } case 'Clear': dctx.clearRect(0,0,W,H); statusEl.textContent='Cleared'; setTimeout(()=>statusEl.textContent=currentMode+' mode',700); break; case 'Shapes': setMode('Shapes'); shapesMode=(shapesMode==='circle')?'square':'circle'; statusEl.textContent='Shapes: '+shapesMode; setTimeout(()=>statusEl.textContent=currentMode+' mode',700); break; } if(navigator.vibrate) navigator.vibrate(40); }
 
-function cycleSize(){ const opts = [3,8,18]; const curIdx = opts.indexOf(brushSize); const nxt = opts[(curIdx+1) % opts.length]; brushSize = nxt; sizeSelect.value = String(nxt); statusEl.textContent = 'Size: ' + (nxt) ; setTimeout(()=> statusEl.textContent = currentMode + ' mode', 700); }
+function setMode(m){ currentMode=m; hudMode.textContent=m; statusEl.textContent=m+' mode'; }
 
-window.addEventListener('load', () => { resizeCanvases(); });
+/* start camera on load handled above */
 </script>
 </body>
 </html>
