@@ -1,40 +1,204 @@
-<!DOCTYPE html>
-<html lang="uz">
+<!doctype html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>🎮 Akkaunt Bozor</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/flowbite@1.6.5/dist/flowbite.min.js"></script>
-  <link rel="stylesheet" href="styles.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AirDraw — Draw in the air with your hand (Front Camera)</title>
+  <style>
+    :root{--ui-bg: rgba(0,0,0,0.45);--ui-fg: #fff}
+    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,Arial}
+    #app{position:relative;width:100vw;height:100vh;background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center}
+    video#videoEl{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1); /* mirrored for front camera feel */}
+    canvas#drawCanvas{position:absolute;top:0;left:0;width:100%;height:100%;touch-action:none}
+    /* UI panel */
+    #ui{position: absolute;left:12px;top:12px;background:var(--ui-bg);color:var(--ui-fg);backdrop-filter: blur(6px);padding:8px;border-radius:10px;display:flex;gap:8px;align-items:center;z-index:10}
+    #ui > *{font-size:14px}
+    button, select, input[type=range]{background:transparent;border:1px solid rgba(255,255,255,0.18);color:var(--ui-fg);padding:6px 8px;border-radius:8px}
+    button:hover{opacity:0.95}
+    .small{padding:6px}
+    #status{position:absolute;left:12px;bottom:12px;color:var(--ui-fg);background:var(--ui-bg);padding:6px 10px;border-radius:8px;font-size:13px}
+  </style>
 </head>
-<body class="bg-gray-100 text-gray-900">
-  <div class="container mx-auto p-4">
-    <h1 class="text-3xl font-bold text-center mb-4">🎮 Akkaunt Bozor</h1>
+<body>
+  <div id="app">
+    <video id="videoEl" autoplay playsinline muted></video>
+    <canvas id="drawCanvas"></canvas>
 
-    <!-- Filter and search -->
-    <div class="flex flex-col md:flex-row justify-between mb-4 gap-2">
-      <div class="flex items-center space-x-2">
-        <label class="font-medium">Tartiblash:</label>
-        <select id="sort" class="border px-2 py-1 rounded">
-          <option value="asc">Arzon → Qimmat</option>
-          <option value="desc">Qimmat → Arzon</option>
-        </select>
-      </div>
-      <input id="search" type="text" placeholder="Qidiruv..." class="border px-3 py-1 rounded w-full md:w-1/3" />
+    <div id="ui">
+      <label>Color <input id="color" type="color" value="#ff3b30" /></label>
+      <label>Size <input id="size" type="range" min="1" max="40" value="6" /></label>
+      <button id="clearBtn" class="small">Clear</button>
+      <button id="downloadBtn" class="small">Save</button>
+      <button id="mirrorBtn" class="small">Mirror: ON</button>
+      <label style="display:flex;align-items:center;gap:6px">Threshold <input id="thresh" type="range" min="10" max="120" value="40" /></label>
     </div>
 
-    <!-- Reklama -->
-    <div id="promo" class="mb-6">
-      <h2 class="text-xl font-semibold mb-2">⭐ Reklamadagi akkauntlar</h2>
-      <div id="promoContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-    </div>
-
-    <!-- Barcha akkauntlar -->
-    <div id="accountsContainer" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+    <div id="status">Waiting for camera...</div>
   </div>
 
-  <script src="accounts.js"></script>
-  <script src="main.js"></script>
+  <!-- MediaPipe Hands (via CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script>
+    const videoEl = document.getElementById('videoEl');
+    const canvas = document.getElementById('drawCanvas');
+    const ctx = canvas.getContext('2d');
+    const statusEl = document.getElementById('status');
+
+    const colorInput = document.getElementById('color');
+    const sizeInput = document.getElementById('size');
+    const clearBtn = document.getElementById('clearBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const mirrorBtn = document.getElementById('mirrorBtn');
+    const threshInput = document.getElementById('thresh');
+
+    let drawing = false;
+    let lastX = null, lastY = null;
+    let mirror = true; // video mirrored by default for front camera
+
+    function fitCanvas() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      canvas.width = w * devicePixelRatio;
+      canvas.height = h * devicePixelRatio;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+    }
+    window.addEventListener('resize', fitCanvas);
+    fitCanvas();
+
+    // UI actions
+    clearBtn.onclick = () => {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      lastX = lastY = null;
+    };
+    downloadBtn.onclick = () => {
+      // merge video frame (snapshot) and drawing
+      const tmp = document.createElement('canvas');
+      tmp.width = canvas.width; tmp.height = canvas.height;
+      const tctx = tmp.getContext('2d');
+      // draw video snapshot (mirrored accordingly)
+      tctx.save();
+      if (mirror) tctx.translate(tmp.width/ devicePixelRatio, 0), tctx.scale(-1,1);
+      tctx.drawImage(videoEl, 0, 0, tmp.width/ devicePixelRatio, tmp.height/ devicePixelRatio);
+      tctx.restore();
+      // draw drawing on top
+      tctx.drawImage(canvas, 0, 0);
+      const url = tmp.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url; a.download = 'airdraw.png'; a.click();
+    };
+    mirrorBtn.onclick = () => {
+      mirror = !mirror;
+      videoEl.style.transform = mirror ? 'scaleX(-1)' : 'scaleX(1)';
+      mirrorBtn.textContent = 'Mirror: ' + (mirror ? 'ON' : 'OFF');
+    };
+
+    // Setup MediaPipe Hands
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
+
+    hands.onResults(onHands);
+
+    // Camera
+    let camera = null;
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+        videoEl.srcObject = stream;
+        await videoEl.play();
+
+        statusEl.textContent = 'Camera running — allow hand in view';
+
+        camera = new Camera(videoEl, {
+          onFrame: async () => {
+            await hands.send({ image: videoEl });
+          },
+          width: 1280, height: 720
+        });
+        camera.start();
+      } catch (e) {
+        console.error(e);
+        statusEl.textContent = 'Camera error: ' + (e.message || e.name);
+      }
+    }
+
+    function onHands(results) {
+      // we only draw on our drawing canvas; do not clear it each frame so drawing persists
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+
+      if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+        // no hand — stop drawing but keep last point
+        drawing = false;
+        statusEl.textContent = 'No hand detected';
+        return;
+      }
+
+      const lm = results.multiHandLandmarks[0];
+      // index tip = 8, thumb tip = 4
+      const index = lm[8];
+      const thumb = lm[4];
+
+      // Convert normalized landmark coords to screen coords
+      // Note: MediaPipe coords: x is 0..1 left->right, y is 0..1 top->bottom
+      let x = index.x * w;
+      let y = index.y * h;
+
+      // If mirror is ON, flip x so drawing matches what user expects
+      if (mirror) x = w - x;
+
+      // distance in pixels
+      const dx = (thumb.x - index.x) * w;
+      const dy = (thumb.y - index.y) * h;
+      const dist = Math.hypot(dx, dy);
+
+      const threshold = Number(threshInput.value);
+
+      statusEl.textContent = `Distance: ${Math.round(dist)} px — Threshold: ${threshold}`;
+
+      // smoothing: small interpolation for smoother lines
+      const smooth = (a, b, t=0.35) => a + (b - a) * t;
+
+      if (dist < threshold) {
+        // pen down
+        if (!drawing) {
+          drawing = true;
+          lastX = x; lastY = y;
+        } else {
+          // draw line from last to current
+          const nx = smooth(lastX, x);
+          const ny = smooth(lastY, y);
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.strokeStyle = colorInput.value;
+          ctx.lineWidth = Number(sizeInput.value);
+          ctx.beginPath();
+          ctx.moveTo(lastX, lastY);
+          ctx.lineTo(nx, ny);
+          ctx.stroke();
+          lastX = nx; lastY = ny;
+        }
+      } else {
+        // pen up
+        drawing = false;
+        lastX = null; lastY = null;
+      }
+    }
+
+    // initialize
+    fitCanvas();
+    startCamera();
+  </script>
 </body>
 </html>
+
