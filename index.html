@@ -1,204 +1,283 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AirDraw — Draw in the air with your hand (Front Camera)</title>
-  <style>
-    :root{--ui-bg: rgba(0,0,0,0.45);--ui-fg: #fff}
-    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,Arial}
-    #app{position:relative;width:100vw;height:100vh;background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center}
-    video#videoEl{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1); /* mirrored for front camera feel */}
-    canvas#drawCanvas{position:absolute;top:0;left:0;width:100%;height:100%;touch-action:none}
-    /* UI panel */
-    #ui{position: absolute;left:12px;top:12px;background:var(--ui-bg);color:var(--ui-fg);backdrop-filter: blur(6px);padding:8px;border-radius:10px;display:flex;gap:8px;align-items:center;z-index:10}
-    #ui > *{font-size:14px}
-    button, select, input[type=range]{background:transparent;border:1px solid rgba(255,255,255,0.18);color:var(--ui-fg);padding:6px 8px;border-radius:8px}
-    button:hover{opacity:0.95}
-    .small{padding:6px}
-    #status{position:absolute;left:12px;bottom:12px;color:var(--ui-fg);background:var(--ui-bg);padding:6px 10px;border-radius:8px;font-size:13px}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>HandArrange — Move & Rotate Images with Hand (LocalStorage)</title>
+<style>
+  :root{--ui-bg:rgba(0,0,0,0.45);--ui-fg:#fff}
+  html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,Arial}
+  #app{position:relative;width:100vw;height:100vh;background:#111;overflow:hidden}
+  video{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  canvas{position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none}
+  #ui{position:absolute;left:12px;top:12px;background:var(--ui-bg);color:var(--ui-fg);padding:8px;border-radius:10px;backdrop-filter:blur(6px);z-index:20;display:flex;gap:8px;align-items:center}
+  button,input{background:transparent;border:1px solid rgba(255,255,255,0.18);color:var(--ui-fg);padding:6px 8px;border-radius:8px}
+  #status{position:absolute;left:12px;bottom:12px;color:var(--ui-fg);background:var(--ui-bg);padding:6px 10px;border-radius:8px;z-index:20}
+  #thumbs{position:absolute;right:12px;top:12px;z-index:20;display:flex;flex-direction:column;gap:6px}
+  .thumb{width:56px;height:56px;object-fit:cover;border-radius:6px;border:2px solid rgba(255,255,255,0.08)}
+</style>
 </head>
 <body>
-  <div id="app">
-    <video id="videoEl" autoplay playsinline muted></video>
-    <canvas id="drawCanvas"></canvas>
+<div id="app">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="mainCanvas"></canvas>
 
-    <div id="ui">
-      <label>Color <input id="color" type="color" value="#ff3b30" /></label>
-      <label>Size <input id="size" type="range" min="1" max="40" value="6" /></label>
-      <button id="clearBtn" class="small">Clear</button>
-      <button id="downloadBtn" class="small">Save</button>
-      <button id="mirrorBtn" class="small">Mirror: ON</button>
-      <label style="display:flex;align-items:center;gap:6px">Threshold <input id="thresh" type="range" min="10" max="120" value="40" /></label>
-    </div>
-
-    <div id="status">Waiting for camera...</div>
+  <div id="ui">
+    <label style="display:flex;gap:6px;align-items:center">Upload<input id="file" type="file" accept="image/*" multiple /></label>
+    <button id="saveBtn">Save</button>
+    <button id="clearBtn">Clear Storage</button>
+    <button id="mirrorBtn">Mirror: ON</button>
+    <label>Thresh <input id="thresh" type="range" min="12" max="140" value="40" /></label>
   </div>
 
-  <!-- MediaPipe Hands (via CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script>
-    const videoEl = document.getElementById('videoEl');
-    const canvas = document.getElementById('drawCanvas');
-    const ctx = canvas.getContext('2d');
-    const statusEl = document.getElementById('status');
+  <div id="thumbs"></div>
+  <div id="status">Waiting camera...</div>
+</div>
 
-    const colorInput = document.getElementById('color');
-    const sizeInput = document.getElementById('size');
-    const clearBtn = document.getElementById('clearBtn');
-    const downloadBtn = document.getElementById('downloadBtn');
-    const mirrorBtn = document.getElementById('mirrorBtn');
-    const threshInput = document.getElementById('thresh');
+<!-- MediaPipe Hands CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+const fileInput = document.getElementById('file');
+const saveBtn = document.getElementById('saveBtn');
+const clearBtn = document.getElementById('clearBtn');
+const statusEl = document.getElementById('status');
+const thumbs = document.getElementById('thumbs');
+const mirrorBtn = document.getElementById('mirrorBtn');
+const threshInput = document.getElementById('thresh');
 
-    let drawing = false;
-    let lastX = null, lastY = null;
-    let mirror = true; // video mirrored by default for front camera
+let images = []; // {id, src, x,y,rotation,scale,z}
+const LS_KEY = 'handArrange_images_v1';
+let devicePixel = window.devicePixelRatio || 1;
+let mirror = true;
+let camera = null;
 
-    function fitCanvas() {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      canvas.width = w * devicePixelRatio;
-      canvas.height = h * devicePixelRatio;
-      canvas.style.width = w + 'px';
-      canvas.style.height = h + 'px';
-      ctx.scale(devicePixelRatio, devicePixelRatio);
-    }
-    window.addEventListener('resize', fitCanvas);
-    fitCanvas();
+function fitCanvas(){
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  canvas.width = w * devicePixel;
+  canvas.height = h * devicePixel;
+  canvas.style.width = w+'px';
+  canvas.style.height = h+'px';
+  ctx.setTransform(devicePixel,0,0,devicePixel,0,0);
+}
+window.addEventListener('resize', fitCanvas);
+fitCanvas();
 
-    // UI actions
-    clearBtn.onclick = () => {
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      lastX = lastY = null;
-    };
-    downloadBtn.onclick = () => {
-      // merge video frame (snapshot) and drawing
-      const tmp = document.createElement('canvas');
-      tmp.width = canvas.width; tmp.height = canvas.height;
-      const tctx = tmp.getContext('2d');
-      // draw video snapshot (mirrored accordingly)
-      tctx.save();
-      if (mirror) tctx.translate(tmp.width/ devicePixelRatio, 0), tctx.scale(-1,1);
-      tctx.drawImage(videoEl, 0, 0, tmp.width/ devicePixelRatio, tmp.height/ devicePixelRatio);
-      tctx.restore();
-      // draw drawing on top
-      tctx.drawImage(canvas, 0, 0);
-      const url = tmp.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = url; a.download = 'airdraw.png'; a.click();
-    };
-    mirrorBtn.onclick = () => {
-      mirror = !mirror;
-      videoEl.style.transform = mirror ? 'scaleX(-1)' : 'scaleX(1)';
-      mirrorBtn.textContent = 'Mirror: ' + (mirror ? 'ON' : 'OFF');
-    };
+// Load from localStorage
+function loadImages(){
+  const raw = localStorage.getItem(LS_KEY);
+  if(!raw) return;
+  try{
+    images = JSON.parse(raw);
+  }catch(e){ images = []; }
+}
+function saveImages(){
+  localStorage.setItem(LS_KEY, JSON.stringify(images));
+  statusEl.textContent = 'Saved to localStorage';
+}
 
-    // Setup MediaPipe Hands
-    const hands = new Hands({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-    });
+// Create thumbnails
+function refreshThumbs(){
+  thumbs.innerHTML = '';
+  images.slice().sort((a,b)=>b.z-a.z).forEach(img=>{
+    const i = document.createElement('img');
+    i.src = img.src; i.className='thumb';
+    thumbs.appendChild(i);
+  });
+}
 
-    hands.setOptions({
-      maxNumHands: 1,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence: 0.6
-    });
+// Add image
+function addImage(dataUrl){
+  const id = Date.now() + Math.random().toString(36).slice(2,7);
+  const w = window.innerWidth, h = window.innerHeight;
+  images.push({id, src:dataUrl, x:w/2, y:h/2, rotation:0, scale:1, z: (images.length+1)});
+  saveImages(); refreshThumbs();
+}
 
-    hands.onResults(onHands);
+fileInput.addEventListener('change', async (e)=>{
+  const files = Array.from(e.target.files || []);
+  for(const f of files){
+    const r = await readFileAsDataURL(f);
+    addImage(r);
+  }
+  fileInput.value='';
+});
 
-    // Camera
-    let camera = null;
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
-        videoEl.srcObject = stream;
-        await videoEl.play();
+function readFileAsDataURL(file){
+  return new Promise((res,rej)=>{
+    const r = new FileReader(); r.onload = ()=>res(r.result); r.onerror=rej; r.readAsDataURL(file);
+  });
+}
 
-        statusEl.textContent = 'Camera running — allow hand in view';
+clearBtn.onclick = ()=>{ if(confirm('Clear saved images?')){ images=[]; saveImages(); refreshThumbs(); }};
+saveBtn.onclick = ()=>{ saveImages(); };
+mirrorBtn.onclick = ()=>{ mirror = !mirror; video.style.transform = mirror? 'scaleX(-1)' : 'scaleX(1)'; mirrorBtn.textContent = 'Mirror: ' + (mirror? 'ON':'OFF'); };
 
-        camera = new Camera(videoEl, {
-          onFrame: async () => {
-            await hands.send({ image: videoEl });
-          },
-          width: 1280, height: 720
-        });
-        camera.start();
-      } catch (e) {
-        console.error(e);
-        statusEl.textContent = 'Camera error: ' + (e.message || e.name);
+// Drawing loop
+function drawLoop(){
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.clearRect(0,0,w,h);
+  // optionally show video as background snapshot (we keep video visible via <video>)
+  // draw images
+  // sort by z
+  const stack = images.slice().sort((a,b)=>a.z-b.z);
+  for(const it of stack){
+    drawImageObject(it);
+  }
+  requestAnimationFrame(drawLoop);
+}
+
+function drawImageObject(it){
+  const img = new Image();
+  img.src = it.src;
+  // draw when loaded - but to avoid flicker, draw using cached image element map
+}
+
+// Preload images into memory to draw quickly
+const imgCache = new Map();
+function preloadAll(){
+  imgCache.clear();
+  for(const it of images){
+    const i = new Image(); i.src = it.src; imgCache.set(it.id,i);
+  }
+}
+
+function renderAll(){
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.clearRect(0,0,w,h);
+  const stack = images.slice().sort((a,b)=>a.z-b.z);
+  for(const it of stack){
+    const img = imgCache.get(it.id);
+    if(!img || !img.width) continue;
+    const iw = img.width * it.scale;
+    const ih = img.height * it.scale;
+    ctx.save();
+    ctx.translate(it.x, it.y);
+    ctx.rotate(it.rotation);
+    ctx.drawImage(img, -iw/2, -ih/2, iw, ih);
+    ctx.restore();
+  }
+}
+
+// Hit test - check if point px,py is inside transformed image
+function isPointInImage(it, px,py){
+  const img = imgCache.get(it.id);
+  if(!img || !img.width) return false;
+  const iw = img.width * it.scale;
+  const ih = img.height * it.scale;
+  // transform point to image local coords
+  const dx = px - it.x;
+  const dy = py - it.y;
+  const cos = Math.cos(-it.rotation);
+  const sin = Math.sin(-it.rotation);
+  const lx = dx * cos - dy * sin;
+  const ly = dx * sin + dy * cos;
+  return (lx >= -iw/2 && lx <= iw/2 && ly >= -ih/2 && ly <= ih/2);
+}
+
+// Selection & manipulation state
+let selectedId = null;
+let selStart = null; // {startDist,startScale,startAngle,startRotation,startX,startY,startHandX,startHandY}
+
+// Utility: angle between points
+function angleBetween(ax,ay,bx,by){ return Math.atan2(by-ay,bx-ax); }
+
+// Start camera & MediaPipe
+const hands = new Hands({ locateFile:(f)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+hands.setOptions({ maxNumHands:1, modelComplexity:1, minDetectionConfidence:0.6, minTrackingConfidence:0.6 });
+hands.onResults(onHands);
+
+async function startCamera(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: 'user' }, audio:false });
+    video.srcObject = stream; await video.play();
+    statusEl.textContent = 'Camera ready — show your hand';
+    camera = new Camera(video,{ onFrame: async ()=>{ await hands.send({image:video}); }, width:1280, height:720 });
+    camera.start();
+  }catch(e){ console.error(e); statusEl.textContent = 'Camera error: '+(e.message||e.name); }
+}
+
+// Keep a small cache of last hand positions
+let lastHand = null;
+
+function onHands(results){
+  const w = window.innerWidth, h = window.innerHeight;
+  if(!results.multiHandLandmarks || results.multiHandLandmarks.length===0){ lastHand=null; statusEl.textContent = 'No hand'; return; }
+  const lm = results.multiHandLandmarks[0];
+  // landmarks: 4 thumb tip, 8 index tip, 0 wrist
+  const thumb = lm[4]; const index = lm[8]; const wrist = lm[0];
+  // convert to screen coords and mirror if needed
+  let ix = index.x * w; let iy = index.y * h;
+  let tx = thumb.x * w; let ty = thumb.y * h;
+  let wx = wrist.x * w; let wy = wrist.y * h;
+  if(mirror){ ix = w - ix; tx = w - tx; wx = w - wx; }
+
+  const pinchDist = Math.hypot(tx-ix, ty-iy);
+  const threshold = Number(threshInput.value);
+  statusEl.textContent = `dist ${Math.round(pinchDist)} px — thr ${threshold}`;
+
+  // If pinch and no selection -> try select topmost image under point
+  if(pinchDist < threshold){
+    // pinch center = midpoint
+    const hx = (ix+tx)/2, hy = (iy+ty)/2;
+    if(!selectedId){
+      // find topmost image under hx,hy
+      const top = images.slice().sort((a,b)=>b.z-a.z).find(it=>isPointInImage(it,hx,hy));
+      if(top){
+        selectedId = top.id;
+        // initial values
+        const sel = images.find(it=>it.id===selectedId);
+        selStart = {
+          startDist: pinchDist,
+          startScale: sel.scale,
+          startAngle: angleBetween(wx,wy,ix,iy),
+          startRotation: sel.rotation,
+          startX: sel.x, startY: sel.y,
+          startHandX: hx, startHandY: hy
+        };
+        // bring to top
+        sel.z = Math.max(...images.map(i=>i.z))+1;
+        saveImages();
+        statusEl.textContent = 'Selected item';
       }
+    } else {
+      // modify selected
+      const sel = images.find(it=>it.id===selectedId);
+      if(!sel || !selStart) return;
+      // move: delta between current pinch center and startHand
+      const hx = (ix+tx)/2, hy = (iy+ty)/2;
+      const dx = hx - selStart.startHandX; const dy = hy - selStart.startHandY;
+      sel.x = selStart.startX + dx; sel.y = selStart.startY + dy;
+      // scale: ratio of pinch distances
+      const scaleRatio = pinchDist / selStart.startDist;
+      sel.scale = Math.max(0.05, selStart.startScale * scaleRatio);
+      // rotate: difference between current angle (wrist->index) and startAngle
+      const currentAngle = angleBetween(wx,wy,ix,iy);
+      sel.rotation = selStart.startRotation + (currentAngle - selStart.startAngle);
+      // persist
+      saveImages();
     }
+  } else {
+    // pinch released -> drop
+    if(selectedId){ selectedId = null; selStart = null; statusEl.textContent = 'Released'; }
+  }
+  // keep last
+  lastHand = {ix,iy,tx,ty,wx,wy,pinchDist};
+}
 
-    function onHands(results) {
-      // we only draw on our drawing canvas; do not clear it each frame so drawing persists
-      const w = window.innerWidth;
-      const h = window.innerHeight;
+// Initial load
+loadImages(); preloadAll(); refreshThumbs(); renderAll();
+// Render loop independent of hands to show updated positions
+function loopRender(){ renderAll(); requestAnimationFrame(loopRender); }
+loopRender(); drawLoop(); startCamera();
 
-      if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-        // no hand — stop drawing but keep last point
-        drawing = false;
-        statusEl.textContent = 'No hand detected';
-        return;
-      }
+// When images data change (like new images loaded), preload
+window.addEventListener('storage', ()=>{ loadImages(); preloadAll(); refreshThumbs(); });
 
-      const lm = results.multiHandLandmarks[0];
-      // index tip = 8, thumb tip = 4
-      const index = lm[8];
-      const thumb = lm[4];
-
-      // Convert normalized landmark coords to screen coords
-      // Note: MediaPipe coords: x is 0..1 left->right, y is 0..1 top->bottom
-      let x = index.x * w;
-      let y = index.y * h;
-
-      // If mirror is ON, flip x so drawing matches what user expects
-      if (mirror) x = w - x;
-
-      // distance in pixels
-      const dx = (thumb.x - index.x) * w;
-      const dy = (thumb.y - index.y) * h;
-      const dist = Math.hypot(dx, dy);
-
-      const threshold = Number(threshInput.value);
-
-      statusEl.textContent = `Distance: ${Math.round(dist)} px — Threshold: ${threshold}`;
-
-      // smoothing: small interpolation for smoother lines
-      const smooth = (a, b, t=0.35) => a + (b - a) * t;
-
-      if (dist < threshold) {
-        // pen down
-        if (!drawing) {
-          drawing = true;
-          lastX = x; lastY = y;
-        } else {
-          // draw line from last to current
-          const nx = smooth(lastX, x);
-          const ny = smooth(lastY, y);
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          ctx.strokeStyle = colorInput.value;
-          ctx.lineWidth = Number(sizeInput.value);
-          ctx.beginPath();
-          ctx.moveTo(lastX, lastY);
-          ctx.lineTo(nx, ny);
-          ctx.stroke();
-          lastX = nx; lastY = ny;
-        }
-      } else {
-        // pen up
-        drawing = false;
-        lastX = null; lastY = null;
-      }
-    }
-
-    // initialize
-    fitCanvas();
-    startCamera();
-  </script>
+</script>
 </body>
 </html>
-
