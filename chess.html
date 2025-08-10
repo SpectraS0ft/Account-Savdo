@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Minecraft Mobs Chess — Premium</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/css/chessboard.min.css" integrity="" crossorigin="anonymous">
+  <style>
+    :root{
+      --bg:#0f1724; /* dark premium */
+      --card:#0b1220;
+      --accent: linear-gradient(135deg,#f59e0b,#ef4444);
+      --glass: rgba(255,255,255,0.03);
+    }
+    html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial}
+    body{background:radial-gradient(1200px 600px at 10% 10%, rgba(79,70,229,0.08), transparent), radial-gradient(900px 400px at 90% 90%, rgba(239,68,68,0.06), transparent), var(--bg); color:#e6eef8; display:flex;align-items:center;justify-content:center;padding:30px}
+    .container{width:100%;max-width:1100px;display:grid;grid-template-columns:520px 1fr;gap:28px}
+
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border:1px solid rgba(255,255,255,0.04);box-shadow:0 10px 30px rgba(2,6,23,0.6);border-radius:16px;padding:18px}
+
+    .board-wrap{display:flex;flex-direction:column;gap:12px;align-items:center}
+    #board{width:512px;box-shadow:0 8px 24px rgba(2,6,23,0.6);border-radius:12px;overflow:hidden}
+
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    button{background:linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));border:1px solid rgba(255,255,255,0.05);color:inherit;padding:8px 12px;border-radius:10px;cursor:pointer}
+    button.primary{background:var(--accent);color:#081126;border:none;font-weight:700}
+
+    .side{display:flex;flex-direction:column;gap:12px}
+    .info{display:flex;gap:12px;align-items:center;justify-content:space-between}
+
+    .history{background:var(--glass);padding:12px;border-radius:10px;max-height:420px;overflow:auto}
+    .history ol{margin:0;padding-left:18px}
+
+    /* ensure sprite images fill squares */
+    .square-55d63 { background-size: cover !important; background-position:center center !important; }
+
+    /* improved square visuals */
+    .white-1e1d7 { background: linear-gradient(180deg,#eaeef6,#dfe8f8); }
+    .black-3c85d { background: linear-gradient(180deg,#3b4252,#2b3342); }
+
+    .title{display:flex;align-items:center;gap:12px}
+    .logo{width:44px;height:44px;border-radius:8px;background:linear-gradient(180deg,#a78bfa,#f472b6);display:flex;align-items:center;justify-content:center;font-weight:700;color:#081126}
+
+    footer{font-size:12px;opacity:0.7;text-align:center;margin-top:12px}
+
+    @media (max-width:980px){.container{grid-template-columns:1fr;max-width:680px}.board-wrap{align-items:center}#board{width:420px}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card board-wrap">
+      <div class="title">
+        <div class="logo">MC</div>
+        <div>
+          <div style="font-weight:700;font-size:18px">Minecraft Mobs Chess</div>
+          <div style="font-size:13px;opacity:0.8">Premium look — sprites fill the squares</div>
+        </div>
+      </div>
+
+      <div id="board" style="margin-top:6px"></div>
+
+      <div class="controls">
+        <button id="btn-undo">Undo</button>
+        <button id="btn-flip">Flip Board</button>
+        <button id="btn-restart" class="primary">Restart</button>
+        <label style="margin-left:auto;align-self:center">Show coordinates <input id="coords" type="checkbox" checked style="margin-left:6px"></label>
+      </div>
+
+      <footer>Open this file in Chrome/Edge/Firefox to play. Want me to auto-fill mob sprites from the web? Ask & I'll insert them.</footer>
+    </div>
+
+    <div class="card side">
+      <div class="info">
+        <div>
+          <div style="font-weight:700">Game info</div>
+          <div style="font-size:13px;opacity:0.8">Drag pieces to move. Legal moves enforced.</div>
+        </div>
+        <div style="text-align:right">
+          <div id="turn" style="font-weight:800">White to move</div>
+          <div style="font-size:12px;opacity:0.7">Status</div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-weight:700;margin-bottom:6px">Move history</div>
+        <div class="history"><ol id="moves"></ol></div>
+      </div>
+
+      <div>
+        <div style="font-weight:700;margin-bottom:6px">Piece set mapping (replace URLs)</div>
+        <pre id="mapping" style="white-space:pre-wrap;font-size:13px;background:rgba(0,0,0,0.15);padding:10px;border-radius:8px;">// Map of piece codes to image URLs
+// Replace the URLs below with sprite PNGs you like (zombie, creeper, spider, etc.)
+{
+  "wK":"https://example.com/white_king.png",
+  "wQ":"https://example.com/white_queen.png",
+  "wR":"https://example.com/white_rook.png",
+  "wB":"https://example.com/white_bishop.png",
+  "wN":"https://example.com/white_knight.png",
+  "wP":"https://example.com/white_pawn.png",
+  "bK":"https://example.com/black_king.png",
+  "bQ":"https://example.com/black_queen.png",
+  "bR":"https://example.com/black_rook.png",
+  "bB":"https://example.com/black_bishop.png",
+  "bN":"https://example.com/black_knight.png",
+  "bP":"https://example.com/black_pawn.png"
+}
+</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- dependencies -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/1.0.0/chess.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/js/chessboard.min.js"></script>
+
+  <script>
+    // --- Customize these URLs (or let me auto-fill them for you) ---
+    const PIECE_IMAGES = {
+      // example placeholders: replace with Minecraft mob sprites (PNG)
+      wK: 'https://i.imgur.com/7k5Kq5P.png', // white king placeholder
+      wQ: 'https://i.imgur.com/8bKQ8pY.png',
+      wR: 'https://i.imgur.com/1M9bP7L.png',
+      wB: 'https://i.imgur.com/2cV6Y2b.png',
+      wN: 'https://i.imgur.com/3fGdFZq.png',
+      wP: 'https://i.imgur.com/4nXkE6s.png',
+      bK: 'https://i.imgur.com/Zf2bG3T.png',
+      bQ: 'https://i.imgur.com/Yd3qK4U.png',
+      bR: 'https://i.imgur.com/5pTqN7Q.png',
+      bB: 'https://i.imgur.com/6rHdV8W.png',
+      bN: 'https://i.imgur.com/9sJvB2A.png',
+      bP: 'https://i.imgur.com/0aHkL1Z.png'
+    };
+
+    // Create a Chess instance
+    const game = new Chess();
+
+    // pieceTheme function used by chessboard.js to show custom images
+    function pieceTheme(piece) {
+      // piece comes in like 'wK' or 'bq' in some libs; normalize to two chars
+      const key = piece[0] + piece[1].toUpperCase();
+      const url = PIECE_IMAGES[key];
+      if (url) return url;
+      // fallback: tiny transparent png
+      return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAEklEQVR42mP8z/C/HwAFgwJ/l4j6bQAAAABJRU5ErkJggg==';
+    }
+
+    // board config
+    const cfg = {
+      draggable: true,
+      position: 'start',
+      pieceTheme: pieceTheme,
+      onDragStart: onDragStart,
+      onDrop: onDrop,
+      onSnapEnd: onSnapEnd,
+      showNotation: true
+    };
+
+    const board = Chessboard('board', cfg);
+
+    // UI elements
+    const $moves = document.getElementById('moves');
+    const $turn = document.getElementById('turn');
+
+    function onDragStart(source, piece, position, orientation) {
+      // do not pick up pieces if the game is over
+      if (game.game_over()) return false;
+      // only pick up pieces for the side to move
+      if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
+        return false;
+      }
+    }
+
+    function onDrop(source, target) {
+      // see if the move is legal
+      const move = game.move({ from: source, to: target, promotion: 'q' });
+
+      // illegal move
+      if (move === null) return 'snapback';
+
+      updateStatus();
+    }
+
+    function onSnapEnd() {
+      board.position(game.fen());
+    }
+
+    function updateStatus() {
+      const status = [];
+      const turn = game.turn() === 'w' ? 'White' : 'Black';
+      const isCheck = game.in_check();
+      const isCheckmate = game.in_checkmate();
+      const isDraw = game.in_draw() || game.in_stalemate() || game.in_threefold_repetition();
+
+      if (isCheckmate) status.push('Checkmate — ' + (turn === 'White' ? 'Black' : 'White') + ' wins');
+      else if (isDraw) status.push('Draw');
+      else status.push(turn + ' to move' + (isCheck ? ' — in check' : ''));
+
+      document.getElementById('turn').textContent = status.join(' ');
+
+      // update move list
+      const history = game.history({ verbose: true });
+      $moves.innerHTML = '';
+      for (let i = 0; i < history.length; i += 2) {
+        const moveNo = Math.floor(i/2) + 1;
+        const w = history[i] ? history[i].san : '';
+        const b = history[i+1] ? history[i+1].san : '';
+        const li = document.createElement('li');
+        li.textContent = moveNo + '. ' + w + ' ' + b;
+        $moves.appendChild(li);
+      }
+    }
+
+    document.getElementById('btn-undo').addEventListener('click', () => {
+      game.undo();
+      game.undo(); // undo both sides for one full move optionally
+      board.position(game.fen());
+      updateStatus();
+    });
+
+    document.getElementById('btn-flip').addEventListener('click', () => board.flip());
+
+    document.getElementById('btn-restart').addEventListener('click', () => {
+      game.reset();
+      board.start();
+      updateStatus();
+    });
+
+    // initialize
+    updateStatus();
+
+    // OPTIONAL: live update the mapping textarea with the current URLs
+    document.getElementById('mapping').textContent = JSON.stringify(PIECE_IMAGES, null, 2) + '\n\n// Replace URLs above with Minecraft mob sprite PNG links.';
+
+    // If you want me to auto-insert real Minecraft mob sprite URLs, say so and I'll fetch several suitable PNGs and update PIECE_IMAGES.
+  </script>
+</body>
+</html>
