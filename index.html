@@ -1,4 +1,5 @@
 <!doctype html>
+
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -22,24 +23,18 @@
 <body>
   <div id="app">
     <video id="videoEl" autoplay playsinline muted></video>
-    <canvas id="drawCanvas"></canvas>
+    <canvas id="drawCanvas"></canvas><div id="ui">
+  <label>Color <input id="color" type="color" value="#ff3b30" /></label>
+  <label>Size <input id="size" type="range" min="1" max="40" value="6" /></label>
+  <button id="clearBtn" class="small">Clear</button>
+  <button id="downloadBtn" class="small">Save</button>
+  <button id="mirrorBtn" class="small">Mirror: ON</button>
+  <label style="display:flex;align-items:center;gap:6px">Threshold <input id="thresh" type="range" min="10" max="120" value="40" /></label>
+</div>
 
-    <div id="ui">
-      <label>Color <input id="color" type="color" value="#ff3b30" /></label>
-      <label>Size <input id="size" type="range" min="1" max="40" value="6" /></label>
-      <button id="clearBtn" class="small">Clear</button>
-      <button id="downloadBtn" class="small">Save</button>
-      <button id="mirrorBtn" class="small">Mirror: ON</button>
-      <label style="display:flex;align-items:center;gap:6px">Threshold <input id="thresh" type="range" min="10" max="120" value="40" /></label>
-    </div>
+<div id="status">Waiting for camera...</div>
 
-    <div id="status">Waiting for camera...</div>
-  </div>
-
-  <!-- MediaPipe Hands (via CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script>
+  </div>  <!-- MediaPipe Hands (via CDN) -->  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>  <script>
     const videoEl = document.getElementById('videoEl');
     const canvas = document.getElementById('drawCanvas');
     const ctx = canvas.getContext('2d');
@@ -198,7 +193,5 @@
     // initialize
     fitCanvas();
     startCamera();
-  </script>
-</body>
+  </script></body>
 </html>
-
