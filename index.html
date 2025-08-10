@@ -10,20 +10,35 @@
     html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,Arial}
     #app{position:relative;width:100vw;height:100vh;background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center}
     video#videoEl{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1); /* mirrored for front camera feel */}
-    canvas#drawCanvas{position:absolute;top:0;left:0;width:100%;height:100%;touch-action:none}
-    /* UI panel */
-    #ui{position: absolute;left:12px;top:12px;background:var(--ui-bg);color:var(--ui-fg);backdrop-filter: blur(6px);padding:8px;border-radius:10px;display:flex;gap:8px;align-items:center;z-index:10}
-    #ui > *{font-size:14px}
-    button, select, input[type=range]{background:transparent;border:1px solid rgba(255,255,255,0.18);color:var(--ui-fg);padding:6px 8px;border-radius:8px}
-    button:hover{opacity:0.95}
-    .small{padding:6px}
-    #status{position:absolute;left:12px;bottom:12px;color:var(--ui-fg);background:var(--ui-bg);padding:6px 10px;border-radius:8px;font-size:13px}
+    canvas#drawCanvas{position:absolute;top:0;left:0;width:100%;height:100%;touch-action:none}/* Floating cursor that follows fingertip when not drawing */
+#cursor{
+  position:absolute;
+  width:20px;height:20px;border-radius:50%;
+  transform:translate(-50%,-50%);
+  pointer-events:none; /* don't block camera */
+  display:block;z-index:12;mix-blend-mode:screen;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.25) 30%, rgba(255,255,255,0.05) 60%, rgba(0,0,0,0) 100%);
+  box-shadow: 0 0 14px rgba(0,0,0,0.25);
+  border: 2px solid rgba(0,0,0,0.1);
+}
+
+/* UI panel */
+#ui{position: absolute;left:12px;top:12px;background:var(--ui-bg);color:var(--ui-fg);backdrop-filter: blur(6px);padding:8px;border-radius:10px;display:flex;gap:8px;align-items:center;z-index:10}
+#ui > *{font-size:14px}
+button, select, input[type=range]{background:transparent;border:1px solid rgba(255,255,255,0.18);color:var(--ui-fg);padding:6px 8px;border-radius:8px}
+button:hover{opacity:0.95}
+.small{padding:6px}
+#status{position:absolute;left:12px;bottom:12px;color:var(--ui-fg);background:var(--ui-bg);padding:6px 10px;border-radius:8px;font-size:13px}
+
   </style>
 </head>
 <body>
   <div id="app">
     <video id="videoEl" autoplay playsinline muted></video>
-    <canvas id="drawCanvas"></canvas><div id="ui">
+    <canvas id="drawCanvas"></canvas><!-- cursor shows where index fingertip is. Hidden while drawing -->
+<div id="cursor" aria-hidden="true"></div>
+
+<div id="ui">
   <label>Color <input id="color" type="color" value="#ff3b30" /></label>
   <label>Size <input id="size" type="range" min="1" max="40" value="6" /></label>
   <button id="clearBtn" class="small">Clear</button>
@@ -39,6 +54,7 @@
     const canvas = document.getElementById('drawCanvas');
     const ctx = canvas.getContext('2d');
     const statusEl = document.getElementById('status');
+    const cursorEl = document.getElementById('cursor');
 
     const colorInput = document.getElementById('color');
     const sizeInput = document.getElementById('size');
@@ -51,14 +67,20 @@
     let lastX = null, lastY = null;
     let mirror = true; // video mirrored by default for front camera
 
+    // for five-finger detection
+    const colorPalette = ['#ff3b30','#ff9500','#ffd60a','#34c759','#5ac8fa','#5856d6','#ff2d55'];
+    let paletteIndex = 0;
+    let fiveWasOn = false; // to detect rising edge
+
     function fitCanvas() {
       const w = window.innerWidth;
       const h = window.innerHeight;
+      // use devicePixelRatio for crisp lines on high-DPI screens
       canvas.width = w * devicePixelRatio;
       canvas.height = h * devicePixelRatio;
       canvas.style.width = w + 'px';
       canvas.style.height = h + 'px';
-      ctx.scale(devicePixelRatio, devicePixelRatio);
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     }
     window.addEventListener('resize', fitCanvas);
     fitCanvas();
@@ -69,7 +91,6 @@
       lastX = lastY = null;
     };
     downloadBtn.onclick = () => {
-      // merge video frame (snapshot) and drawing
       const tmp = document.createElement('canvas');
       tmp.width = canvas.width; tmp.height = canvas.height;
       const tctx = tmp.getContext('2d');
@@ -78,7 +99,7 @@
       if (mirror) tctx.translate(tmp.width/ devicePixelRatio, 0), tctx.scale(-1,1);
       tctx.drawImage(videoEl, 0, 0, tmp.width/ devicePixelRatio, tmp.height/ devicePixelRatio);
       tctx.restore();
-      // draw drawing on top
+      // draw drawing on top (note: canvas already in device pixels)
       tctx.drawImage(canvas, 0, 0);
       const url = tmp.toDataURL('image/png');
       const a = document.createElement('a');
@@ -128,14 +149,16 @@
     }
 
     function onHands(results) {
-      // we only draw on our drawing canvas; do not clear it each frame so drawing persists
       const w = window.innerWidth;
       const h = window.innerHeight;
 
       if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-        // no hand — stop drawing but keep last point
+        // no hand — stop drawing and hide cursor
         drawing = false;
+        lastX = lastY = null;
+        cursorEl.style.display = 'none';
         statusEl.textContent = 'No hand detected';
+        fiveWasOn = false;
         return;
       }
 
@@ -145,32 +168,60 @@
       const thumb = lm[4];
 
       // Convert normalized landmark coords to screen coords
-      // Note: MediaPipe coords: x is 0..1 left->right, y is 0..1 top->bottom
       let x = index.x * w;
       let y = index.y * h;
-
-      // If mirror is ON, flip x so drawing matches what user expects
       if (mirror) x = w - x;
 
-      // distance in pixels
+      // move cursor to fingertip position (only when not drawing)
+      cursorEl.style.left = x + 'px';
+      cursorEl.style.top = y + 'px';
+
+      // distance in pixels between thumb and index
       const dx = (thumb.x - index.x) * w;
       const dy = (thumb.y - index.y) * h;
       const dist = Math.hypot(dx, dy);
 
       const threshold = Number(threshInput.value);
 
-      statusEl.textContent = `Distance: ${Math.round(dist)} px — Threshold: ${threshold}`;
+      // --- detect number of extended fingers (simple heuristic) ---
+      // For fingers (index, middle, ring, pinky) compare tip.y to pip.y (6,10,14,18)
+      const fingers = [ {tip:8, pip:6}, {tip:12, pip:10}, {tip:16, pip:14}, {tip:20, pip:18} ];
+      let extended = 0;
+      for (const f of fingers) {
+        if (lm[f.tip].y < lm[f.pip].y) extended++;
+      }
+      // thumb heuristic: compare tip.x and ip.x (landmark 3) — direction depends on mirror
+      const thumbIp = lm[3];
+      const thumbExtended = mirror ? (lm[4].x > thumbIp.x + 0.03) : (lm[4].x < thumbIp.x - 0.03);
+      if (thumbExtended) extended++;
+
+      // If all 5 fingers extended AND it wasn't on before, change color
+      if (extended === 5 && !fiveWasOn) {
+        paletteIndex = (paletteIndex + 1) % colorPalette.length;
+        colorInput.value = colorPalette[paletteIndex];
+        // show brief feedback
+        statusEl.textContent = `Five fingers detected — color changed to ${colorInput.value}`;
+        fiveWasOn = true;
+        // small vibration on supported devices
+        if (navigator.vibrate) navigator.vibrate(50);
+      } else if (extended !== 5) {
+        // reset flag so next spread triggers change
+        fiveWasOn = false;
+      }
+
+      statusEl.textContent = `Fingers: ${extended} — Dist: ${Math.round(dist)}px — Thr: ${threshold}`;
 
       // smoothing: small interpolation for smoother lines
       const smooth = (a, b, t=0.35) => a + (b - a) * t;
 
       if (dist < threshold) {
-        // pen down
+        // pen down — hide cursor while drawing
+        cursorEl.style.display = 'none';
+
         if (!drawing) {
           drawing = true;
           lastX = x; lastY = y;
         } else {
-          // draw line from last to current
           const nx = smooth(lastX, x);
           const ny = smooth(lastY, y);
           ctx.lineCap = 'round';
@@ -184,9 +235,10 @@
           lastX = nx; lastY = ny;
         }
       } else {
-        // pen up
+        // pen up — show cursor
         drawing = false;
         lastX = null; lastY = null;
+        cursorEl.style.display = 'block';
       }
     }
 
